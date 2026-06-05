@@ -483,7 +483,7 @@ check_user (const uint8_t *uaddr) {
     fail_invalid_access ();
   if (pagedir_get_page (thread_current ()->pagedir, uaddr) == NULL)
     {
-      if (!vm_load_page ((void *) uaddr))
+      if (!vm_handle_fault ((void *) uaddr, thread_current ()->user_esp, true))
         fail_invalid_access ();
     }
   // check uaddr range or segfaults
@@ -499,7 +499,10 @@ get_user (const uint8_t *uaddr) {
       result = -1;
 	  return result;
   }
-  return *uaddr;
+
+  asm ("movl $1f, %0; movzbl %1, %0; 1:"
+      : "=&a" (result) : "m" (*uaddr));
+  return result;
 }
 
 static bool
@@ -509,12 +512,15 @@ put_user (uint8_t *udst, uint8_t byte) {
   }
   if (pagedir_get_page (thread_current ()->pagedir, udst) == NULL)
     {
-      if (!vm_load_page (udst))
+      if (!vm_handle_fault (udst, thread_current ()->user_esp, true))
         return 0;
     }
 
-  *udst = byte;
-  return true;
+  int error_code;
+  asm ("movl $1f, %0; movb %b2, %1; 1:"
+      : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+  bool result = (error_code != -1);
+  return result;
 }
 static int
 memread_user (void *src, void *dst, size_t bytes)

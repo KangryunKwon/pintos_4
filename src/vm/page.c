@@ -209,8 +209,9 @@ vm_pin_buffer (const void *buffer, size_t size)
   for (;;)
     {
       if (pagedir_get_page (thread_current ()->pagedir, start) == NULL)
-        vm_load_page (start);
-      frame_pin (pagedir_get_page (thread_current ()->pagedir, start));
+        vm_handle_fault (start, thread_current ()->user_esp, true);
+      if (pagedir_get_page (thread_current ()->pagedir, start) != NULL)
+        frame_pin (pagedir_get_page (thread_current ()->pagedir, start));
       if (start == end)
         break;
       start += PGSIZE;
@@ -228,7 +229,8 @@ vm_unpin_buffer (const void *buffer, size_t size)
   end = pg_round_down ((const uint8_t *) buffer + size - 1);
   for (;;)
     {
-      frame_unpin (pagedir_get_page (thread_current ()->pagedir, start));
+      if (pagedir_get_page (thread_current ()->pagedir, start) != NULL)
+        frame_unpin (pagedir_get_page (thread_current ()->pagedir, start));
       if (start == end)
         break;
       start += PGSIZE;
