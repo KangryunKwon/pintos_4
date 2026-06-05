@@ -73,11 +73,7 @@ syscall_handler (struct intr_frame *f)
 
   if (f->esp == NULL
       || !is_user_vaddr (f->esp)
-      || !is_user_vaddr ((uint8_t *) f->esp + intsize - 1)
-      || (uint8_t *) f->esp < (uint8_t *) PHYS_BASE - STACK_MAX
-      || pagedir_get_page (thread_current ()->pagedir, f->esp) == NULL
-      || pagedir_get_page (thread_current ()->pagedir,
-                           (uint8_t *) f->esp + intsize - 1) == NULL)
+      || !is_user_vaddr ((uint8_t *) f->esp + intsize - 1))
     sys_exit (-1);
 
   // The system call number is in the 32-bit word at the caller's stack pointer.
