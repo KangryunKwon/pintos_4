@@ -538,7 +538,8 @@ memread_user (void *src, void *dst, size_t bytes)
       fail_invalid_access ();
     if (pagedir_get_page (thread_current ()->pagedir, s + i) == NULL)
       {
-        if (!vm_handle_fault (s + i, thread_current ()->user_esp, true))
+        struct supplemental_page *spte = vm_lookup_page (s + i);
+        if (spte == NULL || !vm_load_page (s + i))
           fail_invalid_access ();
       }
     value = get_user(s + i);
