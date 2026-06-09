@@ -23,6 +23,8 @@ static struct lock frame_lock;
 static struct list_elem *clock_hand;
 static bool initialized;
 
+/* The frame table is initialized lazily so callers do not need a
+   separate init hook in the Pintos boot path. */
 static void
 frame_init (void)
 {
@@ -49,6 +51,7 @@ frame_lookup (void *kpage)
   return NULL;
 }
 
+/* Second-chance replacement over the global frame table. */
 static void *
 evict_frame (void)
 {
@@ -71,6 +74,7 @@ evict_frame (void)
       if (f->pinned || f->spte->pinned)
         continue;
 
+      /* Give recently accessed pages one more pass. */
       if (pagedir_is_accessed (f->owner->pagedir, f->spte->upage))
         {
           pagedir_set_accessed (f->owner->pagedir, f->spte->upage, false);
@@ -80,6 +84,7 @@ evict_frame (void)
       bool dirty = pagedir_is_dirty (f->owner->pagedir, f->spte->upage);
       if (f->spte->type == PAGE_MMAP)
         {
+          /* Dirty mmap pages are written back to their file. */
           if (dirty)
             file_write_at (f->spte->file, f->kpage, f->spte->read_bytes,
                            f->spte->ofs);

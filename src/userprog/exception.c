@@ -88,7 +88,7 @@ kill (struct intr_frame *f)
     case SEL_UCSEG:
       /* User's code segment, so it's a user exception, as we
          expected.  Kill the user process.  */
-      sys_exit (-1); // terminate. no more wait, parent
+      sys_exit (-1);
 
     case SEL_KCSEG:
       /* Kernel's code segment, which indicates a kernel bug.
@@ -103,7 +103,7 @@ kill (struct intr_frame *f)
          kernel. */
       printf ("Interrupt %#04x (%s) in unknown segment %04x\n",
              f->vec_no, intr_name (f->vec_no), f->cs);
-      sys_exit (-1); // terminate. no more wait, parent
+      sys_exit (-1);
     }
 }
 
@@ -147,9 +147,8 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* (3.1.5) a page fault in the kernel merely sets eax to 0xffffffff
-   * and copies its former value into eip */
-  if(!user) { // kernel mode
+  /* get_user() and put_user() recover from kernel-mode page faults here. */
+  if(!user) {
     f->eip = (void *) f->eax;
     f->eax = 0xffffffff;
     return;

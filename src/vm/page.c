@@ -12,6 +12,7 @@
 static struct supplemental_page *page_create (void *);
 static void page_remove (struct supplemental_page *);
 
+/* Prepare per-process VM state. */
 void
 vm_init_thread (struct thread *t)
 {
@@ -108,6 +109,7 @@ vm_add_zero_page (void *upage, bool writable)
   return true;
 }
 
+/* Bring a supplemental page into physical memory on demand. */
 bool
 vm_load_page (void *addr)
 {
@@ -178,6 +180,7 @@ vm_stack_growth (void *addr)
   return vm_load_page (upage);
 }
 
+/* Handle faults from lazy loading and stack growth. */
 bool
 vm_handle_fault (void *fault_addr, void *esp, bool not_present)
 {
@@ -237,6 +240,7 @@ vm_unpin_buffer (const void *buffer, size_t size)
     }
 }
 
+/* Install a file mapping as lazy supplemental pages. */
 mapid_t
 vm_mmap (int fd, void *addr)
 {
@@ -342,6 +346,7 @@ vm_munmap (mapid_t mapid)
   free (mapping);
 }
 
+/* Flush and remove one supplemental page entry. */
 static void
 page_remove (struct supplemental_page *spte)
 {

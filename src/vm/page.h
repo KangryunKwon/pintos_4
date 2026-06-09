@@ -23,14 +23,19 @@ struct supplemental_page
   {
     void *upage;
     enum page_type type;
+
+    /* Backing store information for file and mmap pages. */
     struct file *file;
     off_t ofs;
     uint32_t read_bytes;
     uint32_t zero_bytes;
+
     bool writable;
     bool loaded;
     bool pinned;
     void *kpage;
+
+    /* Swap slot is valid only when type is PAGE_SWAP. */
     size_t swap_idx;
     mapid_t mapid;
     struct list_elem elem;

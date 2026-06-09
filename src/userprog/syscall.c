@@ -52,7 +52,6 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-// in case of invalid memory access, fail and exit.
 static void fail_invalid_access(void) {
   if (lock_held_by_current_thread(&filesys_lock))
     lock_release (&filesys_lock);
@@ -68,7 +67,7 @@ syscall_handler (struct intr_frame *f)
   int intsize = 4;
   int ptrsize = 4;
   int fd;
-  ASSERT( sizeof(syscall_number) == 4 ); // assuming x86
+  ASSERT( sizeof(syscall_number) == 4 );
   thread_current ()->user_esp = f->esp;
 
   if (f->esp == NULL
@@ -76,21 +75,18 @@ syscall_handler (struct intr_frame *f)
       || !is_user_vaddr ((uint8_t *) f->esp + intsize - 1))
     sys_exit (-1);
 
-  // The system call number is in the 32-bit word at the caller's stack pointer.
   memread_user(f->esp, &syscall_number, intsize);
 
 
-  // Dispatch w.r.t system call number
-  // SYS_*** constants are defined in syscall-nr.h
   switch (syscall_number) {
-  case SYS_HALT: // 0
+  case SYS_HALT:
     {
       sys_halt();
       NOT_REACHED();
       break;
     }
 
-  case SYS_EXIT: // 1
+  case SYS_EXIT:
     {
       int exitcode;
       memread_user(f->esp + 4, &exitcode, intsize);
@@ -100,7 +96,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_EXEC: // 2
+  case SYS_EXEC:
     {
       void* cmdline;
 	    memread_user(f->esp + 4, &cmdline, ptrsize);
@@ -110,7 +106,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_WAIT: // 3
+  case SYS_WAIT:
     {
       pid_t pid;
   	  memread_user(f->esp + 4, &pid, sizeof(pid));
@@ -120,7 +116,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_CREATE: // 4
+  case SYS_CREATE:
     {
       const char* filename;
       unsigned initial_size;
@@ -134,7 +130,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_REMOVE: // 5
+  case SYS_REMOVE:
     {
       const char* filename;
       bool return_code;
@@ -145,7 +141,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_OPEN: // 6
+  case SYS_OPEN:
     {
       const char* filename;
       int return_code;
@@ -157,7 +153,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_FILESIZE: // 7
+  case SYS_FILESIZE:
     {
       int return_code;
       memread_user(f->esp + 4, &fd, intsize);
@@ -167,7 +163,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_READ: // 8
+  case SYS_READ:
     {
       uint32_t return_code;
       void *buffer;
@@ -182,7 +178,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_WRITE: // 9
+  case SYS_WRITE:
     {
       uint32_t return_code;
       const void *buffer;
@@ -198,7 +194,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_SEEK: // 10
+  case SYS_SEEK:
     {
       unsigned position;
 	    int sizek = sizeof(position);
@@ -209,7 +205,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_TELL: // 11
+  case SYS_TELL:
     {
       uint32_t return_code;
 
@@ -220,7 +216,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-  case SYS_CLOSE: // 12
+  case SYS_CLOSE:
     {
       memread_user(f->esp + 4, &fd, intsize);
 
@@ -247,18 +243,15 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
-
-  /* unhandled case */
   default:
     printf("[ERROR!] system call %d is unimplemented!\n", syscall_number);
-    // ensure that waiting (parent) process should wake up and terminate.
     sys_exit(-1);
     break;
   }
 
 }
 
-/****************** System Call Implementations ********************/
+/* System call implementations. */
 
 void sys_halt(void) {
   shutdown_power_off();
@@ -282,7 +275,7 @@ pid_t sys_exec(const char *cmdline) {
   const uint8_t* cmd = (const uint8_t*) cmdline;
   check_user(cmd);
 
-  lock_acquire (&filesys_lock); // load() uses filesystem
+  lock_acquire (&filesys_lock);
   pid_t pid = process_execute(cmdline);
   lock_release (&filesys_lock);
   return pid;
@@ -331,7 +324,7 @@ int sys_open(const char* file) {
     return -1;
   }
 
-  fd->file = file_opened; //file save
+  fd->file = file_opened;
   struct thread *current = thread_current();
   struct list* fd_list = &current->file_descriptors;
   struct thread *back;
@@ -339,7 +332,6 @@ int sys_open(const char* file) {
   if ( empty ) fd->id = 3;
   else {
 	fd->id = (list_entry(list_back(fd_list),struct file_desc, elem)->id)+1;
-	//fd->id = (back->id) + 1;
   }
   list_push_back(fd_list, &(fd->elem));
 
@@ -416,19 +408,18 @@ int sys_read(int fd, void *buffer, unsigned size) {
     for(i = 0; i < size; ++i) {
       if(! put_user(buffer + i, input_getc()) ) {
         lock_release (&filesys_lock);
-        sys_exit(-1); // segfault
+        sys_exit(-1);
       }
     }
     ret = size;
   }
   else {
-    // read from file
     struct file_desc* file_d = find_file_desc(thread_current(), fd);
 
     if(file_d && file_d->file) {
       ret = file_read(file_d->file, buffer, size);
     }
-    else // no such file or can't open
+    else
       ret = -1;
   }
 
@@ -448,18 +439,17 @@ int sys_write(int fd, const void *buffer, unsigned size) {
   lock_acquire (&filesys_lock);
   int ret;
 
-  if(fd == STDOUT) { // write to stdout
+  if(fd == STDOUT) {
     putbuf(buffer, size);
     ret = size;
   }
   else {
-    // write into file
     struct file_desc* file_d = find_file_desc(thread_current(), fd);
 
     if(file_d && file_d->file) {
       ret = file_write(file_d->file, buffer, size);
     }
-    else // no such file or can't open
+    else
       ret = -1;
   }
 
@@ -481,7 +471,7 @@ sys_munmap (mapid_t mapping)
   vm_munmap (mapping);
 }
 
-/****************** Helper Functions on Memory Access ********************/
+/* User memory helpers. */
 static void
 check_user (const uint8_t *uaddr) {
   if (uaddr == NULL || !is_user_vaddr (uaddr))
@@ -491,7 +481,6 @@ check_user (const uint8_t *uaddr) {
       if (!vm_handle_fault ((void *) uaddr, thread_current ()->user_esp, true))
         fail_invalid_access ();
     }
-  // check uaddr range or segfaults
   int32_t result = get_user(uaddr);
   if( result  == -1)
   	fail_invalid_access();
@@ -527,6 +516,9 @@ put_user (uint8_t *udst, uint8_t byte) {
   bool result = (error_code != -1);
   return result;
 }
+
+/* Syscall arguments must already belong to the process address space.
+   Buffer syscalls handle stack growth separately after arguments are read. */
 static int
 memread_user (void *src, void *dst, size_t bytes)
 {
@@ -553,7 +545,7 @@ memread_user (void *src, void *dst, size_t bytes)
   return (int)bytes;
 }
 
-/****** Helper Function on File Access ********************/
+/* File descriptor lookup. */
 
 struct file_desc*
 find_file_desc(struct thread *t, int fd)

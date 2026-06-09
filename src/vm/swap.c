@@ -11,6 +11,7 @@ static struct bitmap *swap_map;
 static struct lock swap_lock;
 static bool initialized;
 
+/* Swap slots are tracked one page at a time. */
 static void
 swap_init (void)
 {

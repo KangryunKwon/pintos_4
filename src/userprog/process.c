@@ -51,7 +51,7 @@ process_execute (const char *cmdline)
   }
   strlcpy (cmdline_copy, cmdline, PGSIZE);
 
-  // Extract file_name from cmdline. Should make a copy.
+  /* Use the first token as the thread name. */
   file_name = palloc_get_page (0);
   if (file_name == NULL) {
     goto execute_failed;
@@ -61,41 +61,35 @@ process_execute (const char *cmdline)
 
   /* Create a new thread to execute FILE_NAME. */
 
-  // Create a PCB, along with file_name, and pass it into thread_create
-  // so that a newly created thread can hold the PCB of process to be executed.
+  /* The child receives this PCB during start_process(). */
   pcb = palloc_get_page(0);
   if (pcb == NULL) {
     goto execute_failed;
   }
 
-  // pid is not set yet. Later, in start_process(), it will be determined.
-  // so we have to postpone afterward actions (such as putting 'pcb'
-  // alongwith (determined) 'pid' into 'child_list'), using context switching.
   pcb->pid = PID_INITIALIZING;
 
   pcb->cmdline = cmdline_copy;
   pcb->waiting = false;
   pcb->exited = false;
   pcb->orphan = false;
-  pcb->exitcode = -1; // undefined
+  pcb->exitcode = -1;
 
   sema_init(&pcb->sema_initialization, 0);
   sema_init(&pcb->sema_wait, 0);
 
-  // create thread!
   tid = thread_create (file_name, PRI_DEFAULT, start_process, pcb);
 
   if (tid == TID_ERROR) {
     goto execute_failed;
   }
 
-  // wait until initialization inside start_process() is complete.
+  /* Wait until the child finishes loading. */
   sema_down(&pcb->sema_initialization);
   if(cmdline_copy) {
     palloc_free_page (cmdline_copy);
   }
 
-  // process successfully created, maintain child process list
   if(pcb->pid >= 0) {
     list_push_back (&(thread_current()->child_list), &(pcb->elem));
   }
@@ -104,7 +98,6 @@ process_execute (const char *cmdline)
   return pcb->pid;
 
 execute_failed:
-  // release allocated memory and return
   if(cmdline_copy) palloc_free_page (cmdline_copy);
   if(file_name) palloc_free_page (file_name);
   if(pcb) palloc_free_page (pcb);
@@ -123,7 +116,6 @@ start_process (void *pcb_)
   char *file_name = (char*) pcb->cmdline;
   bool success = false;
 
-  // cmdline handling
   const char **cmdline_tokens = (const char**) palloc_get_page(0);
 
   struct intr_frame if_;
@@ -146,7 +138,6 @@ start_process (void *pcb_)
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load (file_name, &if_.eip, &if_.esp);
     if (success) {
-      //push_arguments (cmdline_tokens, cnt, &if_.esp);
       ASSERT(cnt >= 0);
       int i, len = 0;
       void* argv_addr[cnt];
@@ -157,28 +148,23 @@ start_process (void *pcb_)
         argv_addr[i] = if_.esp;
       }
 
-      // word align
+      /* Word-align the stack before pushing argv. */
       if_.esp = (void*)((unsigned int)(if_.esp) & 0xfffffffc);
 
-      // last null
       if_.esp -= 4;
       *((uint32_t*) if_.esp) = 0;
 
-      // setting **esp with argvs
       for (i = cnt - 1; i >= 0; i--) {
         if_.esp -= 4;
         *((void**) if_.esp) = argv_addr[i];
       }
 
-      // setting **argv (addr of stack, esp)
       if_.esp -= 4;
       *((void**) if_.esp) = (if_.esp + 4);
 
-      // setting argc
       if_.esp -= 4;
       *((int*) if_.esp) = cnt;
 
-      // setting ret addr
       if_.esp -= 4;
       *((int*) if_.esp) = 0;
     }
@@ -186,13 +172,10 @@ start_process (void *pcb_)
   }
 
   /* Assign PCB */
-  // we maintain an one-to-one mapping between pid and tid, with identity function.
-  // pid is determined, so interact with process_execute() for maintaining child_list
   if(success) pcb->pid=(pid_t)(t->tid);
   else pcb->pid=PID_ERROR;
   t->pcb = pcb;
 
-  // wake up sleeping in process_execute()
   sema_up(&pcb->sema_initialization);
 
   /* If load failed, quit. */
@@ -216,15 +199,13 @@ start_process (void *pcb_)
    been successfully called for the given TID, returns -1
    immediately, without waiting.
 
-   This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   The parent may wait for each child at most once. */
 int
 process_wait (tid_t child_tid)
 {
   struct thread *t = thread_current ();
   struct list *child_list = &(t->child_list);
 
-  // lookup the process with tid equals 'child_tid' from 'child_list'
   struct process_control_block *child_pcb = NULL;
   struct list_elem *it = NULL;
 
@@ -233,35 +214,27 @@ process_wait (tid_t child_tid)
       struct process_control_block *pcb = list_entry(
           it, struct process_control_block, elem);
 
-      if(pcb->pid == child_tid) { // OK, the direct child found
+      if(pcb->pid == child_tid) {
         child_pcb = pcb;
         break;
       }
     }
   }
 
-  // if child process is not found, return -1 immediately
   if (child_pcb == NULL) return -1;
   
-  // already waiting (the parent already called wait on child's pid)
-  if (child_pcb->waiting) return -1; // a process may wait for any fixed child at most once
+  if (child_pcb->waiting) return -1;
   else child_pcb->waiting = true;
 
-  // wait(block) until child terminates
-  // see process_exit() for signaling this semaphore
   if (! child_pcb->exited) sema_down(& (child_pcb->sema_wait));
   
   ASSERT (child_pcb->exited == true);
 
-  // remove from child_list
   ASSERT (it != NULL);
   list_remove (it);
 
-  // return the exit code of the child process
   int retcode = child_pcb->exitcode;
 
-  // Now the pcb object of the child process can be finally freed.
-  // (in this context, the child process is guaranteed to have been exited)
   palloc_free_page(child_pcb);
 
   return retcode;
@@ -276,28 +249,24 @@ process_exit (void)
 
   vm_destroy_thread (cur);
 
-  /* Resources should be cleaned up */
-  // 1. file descriptors
+  /* Close file descriptors owned by this process. */
   struct list *fdlist = &cur->file_descriptors;
   while (!list_empty(fdlist)) {
     struct list_elem *e = list_pop_front (fdlist);
     struct file_desc *desc = list_entry(e, struct file_desc, elem);
     file_close(desc->file);
-    palloc_free_page(desc); // see sys_open()
+    palloc_free_page(desc);
   }
 
-  // 2. clean up pcb object of all children processes
+  /* Either free finished children or mark live children as orphans. */
   struct list *child_list = &cur->child_list;
   while (!list_empty(child_list)) {
     struct list_elem *e = list_pop_front (child_list);
     struct process_control_block *pcb;
     pcb = list_entry(e, struct process_control_block, elem);
     if (pcb->exited == true) {
-      // pcb can freed when it is already terminated
       palloc_free_page (pcb);
     } else {
-      // the child process becomes an orphan.
-      // do not free pcb yet, postpone until the child terminates
       pcb->orphan = true;
     }
   }
@@ -308,13 +277,9 @@ process_exit (void)
     file_close(cur->executing_file);
   }
 
-  // Unblock the waiting parent process, if any, from wait().
-  // now its resource (pcb on page, etc.) can be freed.
   if (cur->pcb != NULL)
     sema_up (&cur->pcb->sema_wait);
 
-  // Destroy the pcb object by itself, if it is orphan.
-  // see (part 2) of above.
   if (cur->pcb != NULL && cur->pcb->orphan == true)
     palloc_free_page (cur->pcb);
 
@@ -630,10 +595,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 }
 
 
-/*
- * Push arguments into the stack region of user program
- * (specified by esp), according to the calling convention.
- */
+/* Push command-line arguments according to the user program ABI. */
 static void
 push_arguments (const char* cmdline_tokens[], int argc, void **esp)
 {
@@ -648,28 +610,23 @@ push_arguments (const char* cmdline_tokens[], int argc, void **esp)
     argv_addr[i] = *esp;
   }
 
-  // word align
+  /* Word-align the stack before pushing argv. */
   *esp = (void*)((unsigned int)(*esp) & 0xfffffffc);
 
-  // last null
   *esp -= 4;
   *((uint32_t*) *esp) = 0;
 
-  // setting **esp with argvs
   for (i = argc - 1; i >= 0; i--) {
     *esp -= 4;
     *((void**) *esp) = argv_addr[i];
   }
 
-  // setting **argv (addr of stack, esp)
   *esp -= 4;
   *((void**) *esp) = (*esp + 4);
 
-  // setting argc
   *esp -= 4;
   *((int*) *esp) = argc;
 
-  // setting ret addr
   *esp -= 4;
   *((int*) *esp) = 0;
 
